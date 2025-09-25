@@ -106,7 +106,6 @@ if st.session_state.stage == "instructions":
             st.session_state.results = []
             st.session_state.start_time = None
     with col2:
-        # Toggle: keyboard preference (note: keyboard code not enabled by default)
         using_kb = st.checkbox("Prefer keyboard (R/G/B/Y) when available", value=False)
         st.session_state.using_keyboard = using_kb
 
@@ -128,17 +127,14 @@ elif st.session_state.stage == "practice":
         st.write(f"Practice {idx+1} / {len(trials)}")
         show_stimulus(trial)
 
-        # start timer when stimulus displayed
         if st.session_state.start_time is None:
             st.session_state.start_time = time.time()
             st.session_state.current_onset = st.session_state.start_time
 
-        # BUTTON fallback UI
         cols = st.columns(4)
         for i, color in enumerate(COLOR_NAMES):
             if cols[i].button(color):
                 rt = time.time() - st.session_state.start_time
-                # enforce max RT
                 rt = None if rt > MAX_RT else rt
                 record_response(st.session_state.results, trial, color[0], rt, practice=True)
                 st.session_state.current_idx += 1
@@ -159,16 +155,13 @@ elif st.session_state.stage == "test":
         st.write(f"Trial {idx+1} / {total}")
         show_stimulus(trial)
 
-        # start timer when stimulus displayed
         if st.session_state.start_time is None:
             st.session_state.start_time = time.time()
             st.session_state.current_onset = st.session_state.start_time
 
-        # Instructions for keyboard
         if st.session_state.using_keyboard:
             st.info("Press R (red), G (green), B (blue), Y (yellow) — or use the buttons below.")
 
-        # BUTTONS (fallback & default)
         cols = st.columns(4)
         clicked = None
         for i, color in enumerate(COLOR_NAMES):
@@ -177,27 +170,19 @@ elif st.session_state.stage == "test":
         if clicked:
             rt = time.time() - st.session_state.start_time
             if rt < MIN_VALID_RT:
-                # too fast: treat as anticipatory but still record (mark incorrect)
                 rt_val = rt
             else:
                 rt_val = rt if rt <= MAX_RT else None
             record_response(st.session_state.results, trial, clicked, rt_val, practice=False)
-            # inter-stimulus pause
             time.sleep(ISI)
             st.session_state.current_idx += 1
             st.session_state.start_time = None
             st.rerun()
 
-        # === OPTIONAL: keyboard listener using streamlit-js-eval ===
-        # If you want keyboard-first behavior, install streamlit-js-eval:
-        # pip install streamlit-js-eval
-        # Then uncomment the block below. (Left commented to keep this file runnable without extra installs.)
-        
         try:
             from streamlit_js_eval import streamlit_js_eval
             js_code = """
             (function(){
-                // ensure body can be focused and has focus so key events arrive
                 try {
                     if (!document.body.hasAttribute('tabindex')) {
                         document.body.setAttribute('tabindex', '-1');
@@ -212,7 +197,6 @@ elif st.session_state.stage == "test":
                     window._stroop_onset = null;
                     document.addEventListener('keydown', (e) => {
                         const k = ('' + e.key).toUpperCase();
-                        // accept only R,G,B,Y and only if none stored yet
                         if (['R','G','B','Y'].includes(k) && !window._stroop_key) {
                             window._stroop_key = k;
                             window._stroop_onset = performance.now();
@@ -238,12 +222,10 @@ elif st.session_state.stage == "test":
                 time.sleep(ISI)
                 st.session_state.current_idx += 1
                 st.session_state.start_time = None
-                # clear stored key on the browser side
                 streamlit_js_eval(js_expressions="window._stroop_key = null; window._stroop_onset = null;", key="stroop_key_clear")
                 st.rerun()
         except Exception:
             pass
-
 
 # ---------------- Finished & Results ----------------
 elif st.session_state.stage == "finished":
@@ -252,11 +234,9 @@ elif st.session_state.stage == "finished":
     if df.empty:
         st.info("No data collected.")
     else:
-        # analysis on test trials only
         test_df = df[df["practice"] == False].copy()
-        # clean RTs: keep only rt values (not None) and >= MIN_VALID_RT
         test_df["rt_s_clean"] = test_df["rt_s"].where(test_df["rt_s"].notnull() & (test_df["rt_s"] >= MIN_VALID_RT))
-        # metrics
+        
         overall_acc = test_df["correct"].mean() * 100 if not test_df.empty else 0
         overall_rt = test_df["rt_s_clean"].mean() if not test_df.empty else None
         cong_df = test_df[test_df["congruent"] == True]
@@ -280,10 +260,27 @@ elif st.session_state.stage == "finished":
             "stroop_interference_s (incong - cong)": stroop_effect
         })
 
+        # ---- Cognitive decline judgment ----
+        decline_flag = False
+        reasons = []
+        if overall_acc < 70:
+            decline_flag = True
+            reasons.append("Low accuracy (<70%)")
+        if overall_rt and overall_rt > 2.0:
+            decline_flag = True
+            reasons.append("Slow reaction time (>2s)")
+        if stroop_effect and stroop_effect > 0.7:
+            decline_flag = True
+            reasons.append("High Stroop interference (>0.7s)")
+
+        if decline_flag:
+            st.error(f"⚠️ Possible cognitive decline detected. Reasons: {', '.join(reasons)}")
+        else:
+            st.success("✅ No cognitive decline detected. Performance within normal limits.")
+
         st.write("### Trial-level data (test trials)")
         st.dataframe(test_df.reset_index(drop=True))
 
-        # CSV download
         csv = test_df.to_csv(index=False).encode("utf-8")
         st.download_button("Download test results (CSV)", data=csv, file_name="stroopy_results.csv", mime="text/csv")
 
