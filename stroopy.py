@@ -2,8 +2,8 @@
 """
 Stroopy — Color–Word Stroop Test
 - No practice trials
-- No cognitive decline evaluation
-- 15-second timer per question (auto-advance)
+- No cognitive decline logic
+- 15-second timer per question with auto-advance
 """
 
 import streamlit as st
@@ -22,7 +22,7 @@ COLOR_HEX = {
 }
 
 TRIALS_TOTAL = 20
-MAX_RT = 15.0          # 15 seconds per question
+MAX_RT = 15.0
 MIN_VALID_RT = 0.10
 ISI = 0.5
 CONGRUENT_PROPORTION = 0.5
@@ -48,7 +48,8 @@ def show_stimulus(trial):
     st.markdown(
         f"""
         <div style='text-align:center; margin-top:40px;'>
-            <span style='font-size:110px; font-weight:700; color:{COLOR_HEX[trial['ink']]};'>
+            <span style='font-size:110px; font-weight:700;
+                         color:{COLOR_HEX[trial['ink']]};'>
                 {trial['word']}
             </span>
         </div>
@@ -57,15 +58,20 @@ def show_stimulus(trial):
     )
 
 
+# ✅ SAFE RESPONSE HANDLING (FIXED)
 def record_response(results, trial, response_key, rt):
-    correct = response_key and response_key.upper() == trial["ink"][0]
+    if response_key is None:
+        correct = 0
+    else:
+        correct = int(response_key.upper() == trial["ink"][0])
+
     results.append({
         "trial_index": len(results) + 1,
         "word_text": trial["word"],
         "ink_color": trial["ink"],
         "congruent": trial["congruent"],
         "response_key": response_key,
-        "correct": int(correct),
+        "correct": correct,
         "rt_s": rt
     })
 
@@ -83,7 +89,7 @@ if "onset" not in st.session_state:
     st.session_state.onset = None
 
 # ---------------- UI ----------------
-st.set_page_config("Stroopy", layout="centered")
+st.set_page_config(page_title="Stroopy", layout="centered")
 st.title("Stroopy — Color–Word Test")
 
 
@@ -91,10 +97,10 @@ st.title("Stroopy — Color–Word Test")
 if st.session_state.stage == "instructions":
     st.markdown("""
     ### Instructions
-    - Ignore the word text.
-    - Select the **ink color**.
-    - You have **15 seconds per question**.
-    - If time runs out, the test moves on automatically.
+    - Ignore the word text
+    - Select the **ink color**
+    - You have **15 seconds per question**
+    - If time runs out, it moves on automatically
     """)
 
     if st.button("Start Test"):
@@ -108,17 +114,18 @@ if st.session_state.stage == "instructions":
 # ---------------- Test ----------------
 elif st.session_state.stage == "test":
 
-    # 🔁 force rerun every second (CRITICAL)
+    # 🔁 REQUIRED for timer
     st_autorefresh(interval=1000, key="stroop_timer")
 
     idx = st.session_state.idx
+    total = len(st.session_state.trials)
 
-    if idx >= len(st.session_state.trials):
+    if idx >= total:
         st.session_state.stage = "finished"
         st.rerun()
 
     trial = st.session_state.trials[idx]
-    st.write(f"### Trial {idx + 1} / {len(st.session_state.trials)}")
+    st.write(f"### Trial {idx + 1} / {total}")
     show_stimulus(trial)
 
     if st.session_state.onset is None:
@@ -129,7 +136,7 @@ elif st.session_state.stage == "test":
 
     st.warning(f"⏳ Time left: {remaining} seconds")
 
-    # ⏰ AUTO TIMEOUT
+    # ⏰ TIMEOUT → AUTO ADVANCE
     if elapsed >= MAX_RT:
         record_response(
             st.session_state.results,
