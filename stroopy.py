@@ -1,15 +1,16 @@
 # stroopy.py
 """
-Stroopy — Stroop Test (Color–Word)
+Stroopy — Color–Word Stroop Test
 - No practice trials
-- No cognitive decline judgment
-- 15-second auto-timeout per question
+- No cognitive decline evaluation
+- 15-second timer per question (auto-advance)
 """
 
 import streamlit as st
 import random
 import time
 import pandas as pd
+from streamlit_autorefresh import st_autorefresh
 
 # ------------------ CONFIG ------------------
 COLOR_NAMES = ["RED", "GREEN", "BLUE", "YELLOW"]
@@ -21,7 +22,7 @@ COLOR_HEX = {
 }
 
 TRIALS_TOTAL = 20
-MAX_RT = 15.0          # 15-second timer per question
+MAX_RT = 15.0          # 15 seconds per question
 MIN_VALID_RT = 0.10
 ISI = 0.5
 CONGRUENT_PROPORTION = 0.5
@@ -81,6 +82,7 @@ if "results" not in st.session_state:
 if "onset" not in st.session_state:
     st.session_state.onset = None
 
+# ---------------- UI ----------------
 st.set_page_config("Stroopy", layout="centered")
 st.title("Stroopy — Color–Word Test")
 
@@ -105,6 +107,10 @@ if st.session_state.stage == "instructions":
 
 # ---------------- Test ----------------
 elif st.session_state.stage == "test":
+
+    # 🔁 force rerun every second (CRITICAL)
+    st_autorefresh(interval=1000, key="stroop_timer")
+
     idx = st.session_state.idx
 
     if idx >= len(st.session_state.trials):
@@ -112,6 +118,7 @@ elif st.session_state.stage == "test":
         st.rerun()
 
     trial = st.session_state.trials[idx]
+    st.write(f"### Trial {idx + 1} / {len(st.session_state.trials)}")
     show_stimulus(trial)
 
     if st.session_state.onset is None:
@@ -122,9 +129,14 @@ elif st.session_state.stage == "test":
 
     st.warning(f"⏳ Time left: {remaining} seconds")
 
-    # ---- Timeout auto-advance ----
+    # ⏰ AUTO TIMEOUT
     if elapsed >= MAX_RT:
-        record_response(st.session_state.results, trial, None, None)
+        record_response(
+            st.session_state.results,
+            trial,
+            response_key=None,
+            rt=None
+        )
         time.sleep(ISI)
         st.session_state.idx += 1
         st.session_state.onset = None
@@ -135,7 +147,12 @@ elif st.session_state.stage == "test":
         if cols[i].button(color):
             rt = time.time() - st.session_state.onset
             rt = rt if rt >= MIN_VALID_RT else None
-            record_response(st.session_state.results, trial, color[0], rt)
+            record_response(
+                st.session_state.results,
+                trial,
+                color[0],
+                rt
+            )
             time.sleep(ISI)
             st.session_state.idx += 1
             st.session_state.onset = None
@@ -147,12 +164,15 @@ elif st.session_state.stage == "finished":
     st.header("Results")
 
     df = pd.DataFrame(st.session_state.results)
+
     if df.empty:
         st.info("No data collected.")
     else:
-        df["rt_clean"] = df["rt_s"].where(df["rt_s"].notnull() & (df["rt_s"] >= MIN_VALID_RT))
+        df["rt_clean"] = df["rt_s"].where(
+            df["rt_s"].notnull() & (df["rt_s"] >= MIN_VALID_RT)
+        )
 
-        st.metric("Overall Accuracy (%)", f"{df['correct'].mean()*100:.1f}")
+        st.metric("Overall Accuracy (%)", f"{df['correct'].mean() * 100:.1f}")
         st.metric("Mean Reaction Time (s)", f"{df['rt_clean'].mean():.3f}")
 
         cong = df[df["congruent"]]
@@ -160,12 +180,12 @@ elif st.session_state.stage == "finished":
 
         st.write("### Stroop Effect")
         st.write({
-            "Congruent RT": cong["rt_clean"].mean(),
-            "Incongruent RT": incong["rt_clean"].mean(),
+            "Congruent Mean RT (s)": cong["rt_clean"].mean(),
+            "Incongruent Mean RT (s)": incong["rt_clean"].mean(),
             "Interference (s)": incong["rt_clean"].mean() - cong["rt_clean"].mean()
         })
 
-        st.write("### Trial Data")
+        st.write("### Trial-Level Data")
         st.dataframe(df)
 
         st.download_button(
@@ -175,7 +195,7 @@ elif st.session_state.stage == "finished":
             "text/csv"
         )
 
-    if st.button("Restart"):
+    if st.button("Restart Test"):
         for k in list(st.session_state.keys()):
             del st.session_state[k]
         st.rerun()
