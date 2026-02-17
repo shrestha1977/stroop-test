@@ -1,9 +1,12 @@
 # stroopy.py
 """
 Stroopy — Color–Word Stroop Test
+FINAL CLEAN VERSION
 - No practice trials
 - No cognitive decline logic
-- 15-second timer per question with auto-advance
+- 15-second timer per question
+- Auto-advance on timeout
+- One response per trial (locked)
 """
 
 import streamlit as st
@@ -22,7 +25,7 @@ COLOR_HEX = {
 }
 
 TRIALS_TOTAL = 20
-MAX_RT = 15.0
+MAX_RT = 15.0          # seconds
 MIN_VALID_RT = 0.10
 ISI = 0.5
 CONGRUENT_PROPORTION = 0.5
@@ -58,7 +61,7 @@ def show_stimulus(trial):
     )
 
 
-# ✅ SAFE RESPONSE HANDLING (FIXED)
+# ✅ SAFE RECORDING (timeout-safe)
 def record_response(results, trial, response_key, rt):
     if response_key is None:
         correct = 0
@@ -87,6 +90,8 @@ if "results" not in st.session_state:
     st.session_state.results = []
 if "onset" not in st.session_state:
     st.session_state.onset = None
+if "trial_locked" not in st.session_state:
+    st.session_state.trial_locked = False
 
 # ---------------- UI ----------------
 st.set_page_config(page_title="Stroopy", layout="centered")
@@ -108,13 +113,14 @@ if st.session_state.stage == "instructions":
         st.session_state.idx = 0
         st.session_state.results = []
         st.session_state.onset = None
+        st.session_state.trial_locked = False
         st.rerun()
 
 
 # ---------------- Test ----------------
 elif st.session_state.stage == "test":
 
-    # 🔁 REQUIRED for timer
+    # 🔁 controlled auto-refresh (timer)
     st_autorefresh(interval=1000, key="stroop_timer")
 
     idx = st.session_state.idx
@@ -130,14 +136,16 @@ elif st.session_state.stage == "test":
 
     if st.session_state.onset is None:
         st.session_state.onset = time.time()
+        st.session_state.trial_locked = False
 
     elapsed = time.time() - st.session_state.onset
     remaining = max(0, int(MAX_RT - elapsed))
 
     st.warning(f"⏳ Time left: {remaining} seconds")
 
-    # ⏰ TIMEOUT → AUTO ADVANCE
-    if elapsed >= MAX_RT:
+    # ⏰ TIMEOUT HANDLER (LOCKED)
+    if elapsed >= MAX_RT and not st.session_state.trial_locked:
+        st.session_state.trial_locked = True
         record_response(
             st.session_state.results,
             trial,
@@ -149,9 +157,11 @@ elif st.session_state.stage == "test":
         st.session_state.onset = None
         st.rerun()
 
+    # 🖱️ BUTTON HANDLER (LOCKED)
     cols = st.columns(4)
     for i, color in enumerate(COLOR_NAMES):
-        if cols[i].button(color):
+        if cols[i].button(color) and not st.session_state.trial_locked:
+            st.session_state.trial_locked = True
             rt = time.time() - st.session_state.onset
             rt = rt if rt >= MIN_VALID_RT else None
             record_response(
